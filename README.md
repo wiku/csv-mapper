@@ -25,12 +25,11 @@ String csvLine = csv.mapToCsv(user);
 ```
 User user = csv.mapToObject("Steven,Hawking\n");
 ```
-
-5. "Silent" versions of above methods for simplified usage with Java or Reactive streams, which return Optional.empty() when line cannot be parsed:
+5. Easy API to read CSV file as Java Stream):
+```
+csv.readFileAsStream("users.csv").map(User::getName).forEach(System.out::println);
+```
+6. "Silent" versions of above methods for simplified usage with Java or Reactive streams, which return Optional.empty() when line cannot be parsed:
 ```
 Optional<User> user = csv.mapToObjectQuietly("A,S,1,2", Exception::printStackTrace);
-```
-6. Easy API to read CSV file as Java Stream):
-```
-csv.readFileAsStream("users.csv").forEach(System.out::println);
 ```

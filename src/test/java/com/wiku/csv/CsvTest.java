@@ -4,10 +4,8 @@ import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.junit.Assert.assertEquals;
@@ -45,8 +43,6 @@ public class CsvTest
         Optional<User> optionalUser = csv.mapToObjectQuietly("Steven,Hawking", Exception::printStackTrace);
         System.out.println(userFromCsv.getName());
         Optional<User> s = csv.mapToObjectQuietly("A,S,1,2", Exception::printStackTrace);
-
-        csv.readFileAsStream("users.csv").forEach(System.out::println);
     }
 
     @Test public void canParseSilentlyAndCollectExceptionUsingHandler()
@@ -63,7 +59,10 @@ public class CsvTest
     public void canGetObjectStreamFromCsv() throws IOException
     {
         Csv<User> csv = Csv.from(User.class).build();
-        csv.readFileAsStream("src/test/resources/users.csv").forEach(System.out::println);
+        List<String> names = csv.readFileAsStream("src/test/resources/users.csv")
+                .map(User::getName)
+                .collect(Collectors.toList());
+        assertEquals(Arrays.asList("Steven", "Nassim", "Richard", "Stanislaw"), names);
     }
 
     public static class TestClass
