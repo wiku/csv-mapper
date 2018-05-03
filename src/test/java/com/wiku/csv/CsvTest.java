@@ -40,9 +40,6 @@ public class CsvTest
         User user = new User("John", "Smith");
         String csvLine = csv.mapToCsv(user);
         User userFromCsv = csv.mapToObject("Steven,Hawking");
-        Optional<User> optionalUser = csv.mapToObjectQuietly("Steven,Hawking", Exception::printStackTrace);
-        System.out.println(userFromCsv.getName());
-        Optional<User> s = csv.mapToObjectQuietly("A,S,1,2", Exception::printStackTrace);
     }
 
     @Test public void canParseSilentlyAndCollectExceptionUsingHandler()
