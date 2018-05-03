@@ -1,8 +1,7 @@
 # csv-mapper
 Object to CSV mapping library
 
-The purpose of this project is to provide a simplified way of mapping POJOs to CSV and back using jackson-dataformat-csv.
-This is useful for reading/writing CSV files line by line.
+Simple adapter library for jackson-dataformat-csv is, which provides a simplified way of mapping CSV lines to/from POJOs and additional utility methods for reading whole CSV files as streams.
 
 
 ## Usage
