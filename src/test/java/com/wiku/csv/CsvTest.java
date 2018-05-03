@@ -6,7 +6,6 @@ import org.junit.Test;
 import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -15,6 +14,7 @@ public class CsvTest
 {
 
     private static final String NEWLINE = System.lineSeparator();
+    private Csv<User> csv = Csv.from(User.class).build();
 
     @Test public void canWriteCsvLine() throws CsvException
     {
@@ -23,7 +23,7 @@ public class CsvTest
 
         Csv csv = Csv.from(TestClass.class).withSeparator(';').withNewline().build();
         assertEquals("\"my text\";a;1.0" + NEWLINE, csv.mapToCsv(object1));
-        assertEquals("\"my text\";b;2.0"+ NEWLINE, csv.mapToCsv(object2));
+        assertEquals("\"my text\";b;2.0" + NEWLINE, csv.mapToCsv(object2));
     }
 
     @Test public void canReadCsvLine() throws CsvException
@@ -36,7 +36,6 @@ public class CsvTest
 
     @Test public void readmeTest() throws CsvException, IOException
     {
-        Csv<User> csv = Csv.from(User.class).build();
         User user = new User("John", "Smith");
         String csvLine = csv.mapToCsv(user);
         User userFromCsv = csv.mapToObject("Steven,Hawking");
@@ -44,7 +43,6 @@ public class CsvTest
 
     @Test public void canParseSilentlyAndCollectExceptionUsingHandler()
     {
-        Csv<User> csv = Csv.from(User.class).build();
         List<Exception> exceptionList = new ArrayList<>();
 
         Optional<User> optional = csv.mapToObjectQuietly("a,b,c" + NEWLINE, exceptionList::add);
@@ -52,10 +50,8 @@ public class CsvTest
         assertEquals(1, exceptionList.size());
     }
 
-    @Test
-    public void canGetObjectStreamFromCsv() throws IOException
+    @Test public void canGetObjectStreamFromCsv() throws IOException
     {
-        Csv<User> csv = Csv.from(User.class).build();
         List<String> names = csv.readFileAsStream("src/test/resources/users.csv")
                 .map(User::getName)
                 .collect(Collectors.toList());

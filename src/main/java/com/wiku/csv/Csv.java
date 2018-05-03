@@ -15,6 +15,8 @@ import java.util.stream.Stream;
 public class Csv<T>
 {
 
+    private static final int BUFFER_SIZE = 1024 * 1024;
+
     /**
      * Internal interface used to pass exceptions from streams
      */
@@ -105,12 +107,13 @@ public class Csv<T>
         }
     }
 
+
     /**
      * Creates a Stream of POJOs from CSV file. Swallows any kind of mapping exceptions and omits faulty lines.
      *
      * @param path - path to csv file
-     * @throws IOException when stream can not be opened (eg. file does not exist)
      * @return java Stream of objects
+     * @throws IOException when stream can not be opened (eg. file does not exist)
      */
     public Stream<T> readFileAsStream( String path ) throws IOException
     {
@@ -124,7 +127,6 @@ public class Csv<T>
                 .filter(Optional::isPresent)
                 .map(Optional::get);
     }
-
 
     public static class CsvBuilder<T>
     {
