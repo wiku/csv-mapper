@@ -5,7 +5,7 @@ Simple adapter library for jackson-dataformat-csv is, which provides a simplifie
 
 
 ## Usage
-1. Create Csv instance using builder pattern:
+1. Create Csv mapper instance for a given class using builder:
 ```
 Csv<User> csv = Csv.from(User.class).build();
 ```
@@ -18,7 +18,8 @@ String csvLine = csv.mapToCsv(user);
 ```
 User user = csv.mapToObject("Steven,Hawking\n");
 ```
-5. Read CSV file as Java Stream of POJOs:
+5. Read CSV file as Java Stream of POJOs. Eg. print all user names:
 ```
-csv.readFileAsStream("users.csv").map(User::getName).forEach(System.out::println);
+csv.readFileAsStream("users.csv")
+    .map(User::getName).forEach(System.out::println);
 ```
