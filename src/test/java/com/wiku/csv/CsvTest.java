@@ -1,27 +1,38 @@
 package com.wiku.csv;
 
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.fail;
 
 public class CsvTest
 {
 
     private static final String NEWLINE = System.lineSeparator();
+    private static final String EXCEPTION_MESSAGE = "Failed to write lines due to following errors: com.fasterxml.jackson.databind.JsonMappingException: (was java.lang.IllegalArgumentException) (through reference chain: com.wiku.csv.CsvTest$1[\"name\"]),";
+
+    @Rule public TemporaryFolder temporaryFolder = new TemporaryFolder();
+
+    private TestClass object1 = new TestClass("a", 1);
+    private TestClass object2 = new TestClass("b", 2);
+    private File expectedOutput = new File("src/test/resources/output.csv");
+
     private Csv<User> csv = Csv.from(User.class).build();
 
     @Test public void canWriteCsvLine() throws CsvException
     {
-        TestClass object1 = new TestClass("a", 1);
-        TestClass object2 = new TestClass("b", 2);
-
-        Csv csv = Csv.from(TestClass.class).withSeparator(';').withNewline().build();
+        Csv csv = Csv.from(TestClass.class).withSeparator(';').build();
         assertEquals("\"my text\";a;1.0" + NEWLINE, csv.mapToCsv(object1));
         assertEquals("\"my text\";b;2.0" + NEWLINE, csv.mapToCsv(object2));
     }
@@ -56,6 +67,59 @@ public class CsvTest
                 .map(User::getName)
                 .collect(Collectors.toList());
         assertEquals(Arrays.asList("Steven", "Nassim", "Richard", "Stanislaw"), names);
+    }
+
+    @Test public void canCollectStreamOfObjectsToCsv() throws CsvException, IOException
+    {
+        File outputFile = temporaryFolder.newFile();
+
+        Stream<TestClass> testObjectStream = Arrays.asList(object1, object2).stream();
+
+        Csv csv = Csv.from(TestClass.class).withSeparator(';').build();
+        csv.writeStreamToFile(testObjectStream, outputFile.getPath());
+
+        assertThat(outputFile).exists().hasSameContentAs(expectedOutput);
+    }
+
+    @Test public void canCollectExceptionsOccuringDuringWriteStreamToFile() throws CsvException, IOException
+    {
+        File outputFile = temporaryFolder.newFile();
+
+        TestClass problematicObject = createElementCausingParsingIssue();
+
+        Stream<TestClass> testObjectStream = Arrays.asList(object1, problematicObject, object2)
+                .stream();
+
+        Optional<Exception> exceptionThrown = writeToFileAndReturnExceptionThrown(testObjectStream, outputFile);
+
+        assertThat(exceptionThrown).get().isInstanceOf(CsvException.class);
+        assertThat(exceptionThrown.get()).hasMessageContaining(EXCEPTION_MESSAGE);
+        assertThat(outputFile).exists().hasSameContentAs(expectedOutput);
+    }
+
+    private Optional<Exception> writeToFileAndReturnExceptionThrown( Stream<TestClass> streamToWrite, File outputFile )
+    {
+        try
+        {
+            Csv csv = Csv.from(TestClass.class).withSeparator(';').build();
+            csv.writeStreamToFile(streamToWrite, outputFile.getPath());
+            return Optional.empty();
+        }
+        catch( Exception e )
+        {
+            return Optional.of(e);
+        }
+    }
+
+    private TestClass createElementCausingParsingIssue()
+    {
+        return new TestClass()
+        {
+            @Override public String getName()
+            {
+                throw new IllegalArgumentException();
+            }
+        };
     }
 
     public static class TestClass

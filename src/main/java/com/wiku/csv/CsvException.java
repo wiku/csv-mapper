@@ -8,4 +8,9 @@ public class CsvException extends Exception
     {
         super(e);
     }
+
+    public CsvException(String message)
+    {
+        super(message);
+    }
 }

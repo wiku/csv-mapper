@@ -6,16 +6,20 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.dataformat.csv.CsvMapper;
 import com.fasterxml.jackson.dataformat.csv.CsvSchema;
 
-import java.io.IOException;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collector;
 import java.util.stream.Stream;
 
 public class Csv<T>
 {
 
     private static final int BUFFER_SIZE = 1024 * 1024;
+    private static final String NEWLINE = System.lineSeparator();
 
     /**
      * Internal interface used to pass exceptions from streams
@@ -48,6 +52,27 @@ public class Csv<T>
         catch( JsonProcessingException e )
         {
             throw new CsvException(e);
+        }
+    }
+
+    /**
+     * Quitely maps object to csv, returning an Optional containing the result, or Optional.empty() in case
+     * a JsonProcessingException occured ( also triggers exceptionHandler.handleException when it happens).
+     *
+     * @param objectToWrite   - object to map to CSV line
+     * @param exceptionHander - ExceptionHandler to invoke for each object which could not be processed
+     * @return Optional containing the result
+     */
+    public Optional<String> mapToCsvQuietly( T objectToWrite, ExceptionHander exceptionHander )
+    {
+        try
+        {
+            return Optional.of(writer.writeValueAsString(objectToWrite));
+        }
+        catch( JsonProcessingException e )
+        {
+            exceptionHander.handleException(e);
+            return Optional.empty();
         }
     }
 
@@ -107,7 +132,6 @@ public class Csv<T>
         }
     }
 
-
     /**
      * Creates a Stream of POJOs from CSV file. Swallows any kind of mapping exceptions and omits faulty lines.
      *
@@ -117,7 +141,44 @@ public class Csv<T>
      */
     public Stream<T> readFileAsStream( String path ) throws IOException
     {
-        return doReadFileAsStream(path, ( exception ) -> { });
+        return doReadFileAsStream(path, ( exception ) -> {
+        });
+    }
+
+    public void writeStreamToFile( Stream<T> stream, String outputPath ) throws CsvException
+    {
+        try (OutputStream os = new FileOutputStream(outputPath);
+                BufferedOutputStream bos = new BufferedOutputStream(os);
+                PrintWriter writer = new PrintWriter(os))
+        {
+            List<Exception> exceptionsList = new ArrayList<>();
+
+            stream.map(object -> mapToCsvQuietly(object, exceptionsList::add))
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .forEach(writer::write);
+
+            if( !exceptionsList.isEmpty() )
+            {
+                String message = getAllExceptionsMessagesInOne(exceptionsList);
+                throw new CsvException(
+                        "Failed to write lines due to following errors: " + message);
+            }
+        }
+        catch( IOException e )
+        {
+            throw new CsvException(e);
+        }
+    }
+
+    private String getAllExceptionsMessagesInOne( List<Exception> exceptionList )
+    {
+        StringBuilder exceptionMessageBuilder = new StringBuilder();
+        exceptionList.stream()
+                .map(Exception::toString)
+                .map(exceptionMessage -> exceptionMessage + "," + NEWLINE)
+                .forEach(exceptionMessageBuilder::append);
+        return exceptionMessageBuilder.toString();
     }
 
     private Stream<T> doReadFileAsStream( String path, ExceptionHander exceptionHander ) throws IOException
@@ -133,7 +194,6 @@ public class Csv<T>
 
         private final Class<T> schemaClass;
         private char separator = ',';
-        private boolean newLine = false;
 
         public CsvBuilder( Class<T> schemaClass )
         {
@@ -158,17 +218,8 @@ public class Csv<T>
         private CsvSchema createSchema( CsvMapper mapper )
         {
             CsvSchema schema = mapper.schemaFor(schemaClass).withColumnSeparator(separator);
-            if( newLine )
-            {
-                schema = schema.withLineSeparator(System.lineSeparator());
-            }
             return schema;
         }
 
-        public CsvBuilder withNewline()
-        {
-            this.newLine = true;
-            return this;
-        }
     }
 }
