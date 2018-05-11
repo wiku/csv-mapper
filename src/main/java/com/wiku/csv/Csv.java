@@ -12,7 +12,6 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collector;
 import java.util.stream.Stream;
 
 public class Csv<T>
@@ -20,6 +19,8 @@ public class Csv<T>
 
     private static final int BUFFER_SIZE = 1024 * 1024;
     private static final String NEWLINE = System.lineSeparator();
+
+
 
     /**
      * Internal interface used to pass exceptions from streams
@@ -31,11 +32,36 @@ public class Csv<T>
 
     private final ObjectWriter writer;
     private final ObjectReader reader;
+    private final String header;
+    private final boolean withHeader;
 
-    private Csv( ObjectWriter writer, ObjectReader reader )
+    private Csv( ObjectWriter writer, ObjectReader reader, CsvSchema schema, boolean withHeader )
     {
         this.writer = writer;
         this.reader = reader;
+        this.header = getHeader(schema);
+        this.withHeader = withHeader;
+    }
+
+    public String getHeader()
+    {
+        return header;
+    }
+
+    private String getHeader(CsvSchema schema)
+    {
+        StringBuilder header = new StringBuilder();
+
+        if( schema.size() > 0 )
+        {
+            header.append(schema.column(0).getName());
+            for( int i = 1; i < schema.size(); i++ )
+            {
+                header.append(schema.getColumnSeparator());
+                header.append(schema.column(i).getName());
+            }
+        }
+        return header.toString();
     }
 
     public static <T> CsvBuilder from( Class<T> schemaClass )
@@ -161,8 +187,7 @@ public class Csv<T>
             if( !exceptionsList.isEmpty() )
             {
                 String message = getAllExceptionsMessagesInOne(exceptionsList);
-                throw new CsvException(
-                        "Failed to write lines due to following errors: " + message);
+                throw new CsvException("Failed to write lines due to following errors: " + message);
             }
         }
         catch( IOException e )
@@ -183,7 +208,14 @@ public class Csv<T>
 
     private Stream<T> doReadFileAsStream( String path, ExceptionHander exceptionHander ) throws IOException
     {
-        return Files.lines(Paths.get(path))
+        Stream<String> lines = Files.lines(Paths.get(path));
+
+        if(withHeader)
+        {
+            lines = lines.filter(line -> !line.startsWith(header));
+        }
+
+        return lines
                 .map(line -> mapToObjectQuietly(line, exceptionHander))
                 .filter(Optional::isPresent)
                 .map(Optional::get);
@@ -194,6 +226,7 @@ public class Csv<T>
 
         private final Class<T> schemaClass;
         private char separator = ',';
+        private boolean withHeader;
 
         public CsvBuilder( Class<T> schemaClass )
         {
@@ -206,13 +239,19 @@ public class Csv<T>
             return this;
         }
 
+        public CsvBuilder<T> withHeader()
+        {
+            this.withHeader = true;
+            return this;
+        }
+
         public Csv build()
         {
             CsvMapper mapper = new CsvMapper();
             CsvSchema schema = createSchema(mapper);
             ObjectWriter writer = mapper.writer(schema);
             ObjectReader reader = mapper.readerFor(schemaClass).with(schema);
-            return new Csv<>(writer, reader);
+            return new Csv<>(writer, reader, schema, withHeader);
         }
 
         private CsvSchema createSchema( CsvMapper mapper )

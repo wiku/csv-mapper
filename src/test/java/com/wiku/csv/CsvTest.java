@@ -69,6 +69,15 @@ public class CsvTest
         assertEquals(Arrays.asList("Steven", "Nassim", "Richard", "Stanislaw"), names);
     }
 
+    @Test public void canGetObjectStreamFromCsvWithHeaders() throws IOException
+    {
+        Csv<User> csv = Csv.from(User.class).withHeader().build();
+        List<String> names = csv.readFileAsStream("src/test/resources/users_headers.csv")
+                .map(User::getName)
+                .collect(Collectors.toList());
+        assertEquals(Arrays.asList("Steven", "Nassim", "Richard", "Stanislaw"), names);
+    }
+
     @Test public void canCollectStreamOfObjectsToCsv() throws CsvException, IOException
     {
         File outputFile = temporaryFolder.newFile();
@@ -97,11 +106,16 @@ public class CsvTest
         assertThat(outputFile).exists().hasSameContentAs(expectedOutput);
     }
 
+    @Test public void canGetHeaders()
+    {
+        assertThat(csv.getHeader()).isEqualTo("name,surname");
+    }
+
     private Optional<Exception> writeToFileAndReturnExceptionThrown( Stream<TestClass> streamToWrite, File outputFile )
     {
         try
         {
-            Csv csv = Csv.from(TestClass.class).withSeparator(';').build();
+            Csv csv = Csv.from(TestClass.class).withSeparator(';').withHeader().build();
             csv.writeStreamToFile(streamToWrite, outputFile.getPath());
             return Optional.empty();
         }
