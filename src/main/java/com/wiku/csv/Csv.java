@@ -53,7 +53,7 @@ public class Csv<T>
 
     /**
      * Quitely maps object to csv, returning an Optional containing the result, or Optional.empty() in case
-     * a JsonProcessingException occured ( also triggers exceptionHandler.handleException when it happens).
+     * a JsonProcessingException occurred ( also triggers exceptionHandler.handleException when it happens).
      *
      * @param objectToWrite   - object to map to CSV line
      * @param exceptionHander - ExceptionHandler to invoke for each object which could not be processed
@@ -115,7 +115,7 @@ public class Csv<T>
 
     /**
      * Writes stream of objects to CSV file line by line, starting with header (in case withHeader option is set).
-     * Any kind of writing or parsing exception stops parsing as is rethrown as CsvException.
+     * Any kind of writing or parsing exception stops writing and is rethrown as CsvException.
      *
      * @param stream     - stream of objects to write
      * @param outputPath - output file to be written (overrides the file if exists)
@@ -168,7 +168,8 @@ public class Csv<T>
     }
 
     /**
-     * Creates a Stream of POJOs from CSV file. Stops at first parsing error and rethrows it as CsvException
+     * Creates a Stream of POJOs from CSV file. Stops at first parsing error and rethrows it as
+     * unchecked CsvLineParsingFailedException
      *
      * @param path - path to csv file
      * @return java Stream of objects
@@ -251,15 +252,19 @@ public class Csv<T>
             return this;
         }
 
+        public CsvBuilder<T> skipEmptyLines()
+        {
+            this.skipEmptyLines = true;
+            return this;
+        }
+
         public Csv<T> build()
         {
             CsvMapper mapper = new CsvMapper();
             mapper.setLocale(locale);
             CsvSchema schema = createSchema(mapper);
-            ObjectReader reader = mapper.readerFor(schemaClass).with(schema);
-            reader = reader.with(locale);
-            ObjectWriter writer = mapper.writer(schema);
-            writer = writer.with(locale);
+            ObjectReader reader = mapper.readerFor(schemaClass).with(schema).with(locale);
+            ObjectWriter writer = mapper.writer(schema).with(locale);
             String header = withHeader ? getHeader(schema) : null;
             return new Csv<>(writer, reader, header, skipEmptyLines);
         }
@@ -285,11 +290,7 @@ public class Csv<T>
             return header.toString();
         }
 
-        public CsvBuilder<T> skipEmptyLines()
-        {
-            this.skipEmptyLines = true;
-            return this;
-        }
+
     }
 
     /**
