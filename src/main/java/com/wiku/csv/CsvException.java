@@ -1,7 +1,5 @@
 package com.wiku.csv;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-
 public class CsvException extends Exception
 {
     public CsvException( Exception e )
@@ -9,8 +7,13 @@ public class CsvException extends Exception
         super(e);
     }
 
-    public CsvException(String message)
+    public CsvException( String message )
     {
         super(message);
+    }
+
+    public CsvException( String s, Throwable throwable )
+    {
+        super(s, throwable);
     }
 }

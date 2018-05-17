@@ -1,20 +1,21 @@
 package com.wiku.csv;
 
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.fail;
 
 public class CsvTest
 {
@@ -61,17 +62,38 @@ public class CsvTest
         assertEquals(1, exceptionList.size());
     }
 
-    @Test public void canGetObjectStreamFromCsv() throws IOException
+    @Test(expected = CsvLineParsingFailedException.class) public void canThrowExceptionWhenParsingErrorOccursDueToEmptyLineNotSkipped() throws
+            CsvException
     {
+        List<String> names = csv.readFileAsStream("src/test/resources/users.csv")
+                .map(User::getName)
+                .collect(Collectors.toList());
+    }
+
+    @Test public void canGetObjectStreamFromCsv() throws CsvException
+    {
+        Csv<User> csv = Csv.from(User.class).skipEmptyLines().build();
         List<String> names = csv.readFileAsStream("src/test/resources/users.csv")
                 .map(User::getName)
                 .collect(Collectors.toList());
         assertEquals(Arrays.asList("Steven", "Nassim", "Richard", "Stanislaw"), names);
     }
 
-    @Test public void canGetObjectStreamFromCsvWithHeaders() throws IOException
+    @Test public void canGetObjectStreamFromCsvWIthCustomExceptionHandler()
     {
-        Csv<User> csv = Csv.from(User.class).withHeader().build();
+        Csv<User> csv = Csv.from(User.class).build();
+        List<Exception> exceptions = new ArrayList<>();
+        List<String> names = csv.readFileAsStream("src/test/resources/users.csv", exceptions::add)
+                .map(User::getName)
+                .collect(Collectors.toList());
+        assertEquals(Arrays.asList("Steven", "Nassim", "Richard", "Stanislaw"), names);
+        assertThat(exceptions.size()).isEqualTo(1);
+        assertThat(exceptions.get(0)).hasMessageContaining("No content to map due to end-of-input");
+    }
+
+    @Test public void canGetObjectStreamFromCsvWithHeaders() throws CsvException
+    {
+        Csv<User> csv = Csv.from(User.class).withHeader().skipEmptyLines().build();
         List<String> names = csv.readFileAsStream("src/test/resources/users_headers.csv")
                 .map(User::getName)
                 .collect(Collectors.toList());
@@ -84,38 +106,52 @@ public class CsvTest
 
         Stream<TestClass> testObjectStream = Arrays.asList(object1, object2).stream();
 
-        Csv csv = Csv.from(TestClass.class).withSeparator(';').build();
+        Csv csv = Csv.from(TestClass.class).withHeader().withSeparator(';').build();
         csv.writeStreamToFile(testObjectStream, outputFile.getPath());
 
         assertThat(outputFile).exists().hasSameContentAs(expectedOutput);
     }
 
-    @Test public void canCollectExceptionsOccuringDuringWriteStreamToFile() throws CsvException, IOException
+    @Test
+    public void canCollectExceptionThrownWhenIOExceptionOccurs() throws IOException
+    {
+        String outputPath = temporaryFolder.getRoot().getPath() + "non_existing_folder/output.csv";
+        Stream<TestClass> testObjectStream = Arrays.asList(object1, object2).stream();
+
+        List<Exception> exceptions = new ArrayList<>();
+        Csv csv = Csv.from(TestClass.class).withHeader().build();
+        csv.writeStreamToFile(testObjectStream,outputPath, exceptions::add);
+
+        assertThat(exceptions.size()).isEqualTo(1);
+        assertThat(exceptions.get(0)).isInstanceOf(FileNotFoundException.class);
+    }
+
+    @Test @Ignore // seems not supported by jackson-databind-csv
+    public void canMapWithLocale() throws CsvException
+    {
+        Csv csv = Csv.from(TestClass.class).withHeader().withSeparator(';').withLocale(Locale.getDefault()).build();
+        assertEquals(object1, csv.mapToObject("\"my text\";a;1,0"));
+    }
+
+    @Test public void canCollectExceptionsOccuringDuringWriteStreamToFile() throws IOException
     {
         File outputFile = temporaryFolder.newFile();
 
         TestClass problematicObject = createElementCausingParsingIssue();
 
-        Stream<TestClass> testObjectStream = Arrays.asList(object1, problematicObject, object2)
-                .stream();
+        Stream<TestClass> testObjectStream = Arrays.asList(object1, problematicObject, object2).stream();
 
         Optional<Exception> exceptionThrown = writeToFileAndReturnExceptionThrown(testObjectStream, outputFile);
 
         assertThat(exceptionThrown).get().isInstanceOf(CsvException.class);
-        assertThat(exceptionThrown.get()).hasMessageContaining(EXCEPTION_MESSAGE);
-        assertThat(outputFile).exists().hasSameContentAs(expectedOutput);
-    }
-
-    @Test public void canGetHeaders()
-    {
-        assertThat(csv.getHeader()).isEqualTo("name,surname");
+        assertThat(exceptionThrown.get()).hasMessageContaining("Exception occured while writing to CSV file.");
     }
 
     private Optional<Exception> writeToFileAndReturnExceptionThrown( Stream<TestClass> streamToWrite, File outputFile )
     {
         try
         {
-            Csv csv = Csv.from(TestClass.class).withSeparator(';').withHeader().build();
+            Csv<TestClass> csv = Csv.from(TestClass.class).withSeparator(';').withHeader().build();
             csv.writeStreamToFile(streamToWrite, outputFile.getPath());
             return Optional.empty();
         }
@@ -264,4 +300,5 @@ public class CsvTest
         }
 
     }
+
 }

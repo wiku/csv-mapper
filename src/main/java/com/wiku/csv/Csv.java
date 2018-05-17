@@ -9,59 +9,23 @@ import com.fasterxml.jackson.dataformat.csv.CsvSchema;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Stream;
 
 public class Csv<T>
 {
-
-    private static final int BUFFER_SIZE = 1024 * 1024;
-    private static final String NEWLINE = System.lineSeparator();
-
-
-
-    /**
-     * Internal interface used to pass exceptions from streams
-     */
-    public interface ExceptionHander
-    {
-        void handleException( Exception e );
-    }
-
     private final ObjectWriter writer;
     private final ObjectReader reader;
     private final String header;
-    private final boolean withHeader;
+    private final boolean skipEmptyLines;
 
-    private Csv( ObjectWriter writer, ObjectReader reader, CsvSchema schema, boolean withHeader )
+    private Csv( ObjectWriter writer, ObjectReader reader, String header, boolean skipEmptyLines )
     {
         this.writer = writer;
         this.reader = reader;
-        this.header = getHeader(schema);
-        this.withHeader = withHeader;
-    }
-
-    public String getHeader()
-    {
-        return header;
-    }
-
-    private String getHeader(CsvSchema schema)
-    {
-        StringBuilder header = new StringBuilder();
-
-        if( schema.size() > 0 )
-        {
-            header.append(schema.column(0).getName());
-            for( int i = 1; i < schema.size(); i++ )
-            {
-                header.append(schema.getColumnSeparator());
-                header.append(schema.column(i).getName());
-            }
-        }
-        return header.toString();
+        this.header = header;
+        this.skipEmptyLines = skipEmptyLines;
     }
 
     public static <T> CsvBuilder from( Class<T> schemaClass )
@@ -69,6 +33,12 @@ public class Csv<T>
         return new CsvBuilder<T>(schemaClass);
     }
 
+    /**
+     * Maps a single object to CSV line
+     * @param objectToWrite object to write
+     * @return a single line of CSV representing the object
+     * @throws CsvException when a json exception occurs during parsing
+     */
     public String mapToCsv( T objectToWrite ) throws CsvException
     {
         try
@@ -102,6 +72,13 @@ public class Csv<T>
         }
     }
 
+    /**
+     * Maps a single CSV line to Object
+     *
+     * @param csvLine - line in CSV format
+     * @return object created from the line
+     * @throws CsvException when IO exception or mapping error occurs
+     */
     public T mapToObject( String csvLine ) throws CsvException
     {
         try
@@ -137,7 +114,76 @@ public class Csv<T>
     }
 
     /**
-     * Creates a Stream of POJOs from CSV file. Exception handler can be provided
+     * Writes stream of objects to CSV file line by line, starting with header (in case withHeader option is set).
+     * Any kind of writing or parsing exception stops parsing as is rethrown as CsvException.
+     *
+     * @param stream     - stream of objects to write
+     * @param outputPath - output file to be written (overrides the file if exists)
+     * @throws CsvException - if either the whole file, or a single object cannot be written or mapped to CSV.
+     */
+    public void writeStreamToFile( Stream<T> stream, String outputPath ) throws CsvException
+    {
+        try
+        {
+            writeStreamToFile(stream, outputPath, e -> {
+                throw new CsvLineParsingFailedException("Failed to map object to csv line.", e);
+            });
+        }
+        catch( CsvLineParsingFailedException e )
+        {
+            throw new CsvException("Exception occured while writing to CSV file.", e);
+        }
+    }
+
+    /**
+     * Writes a stream of objects to CSV, mapping each object to a new line,
+     * handling each exception silently using a provided ExceptionHandler
+     * and skipping the problematic lines.
+     * Adds a header as a first line if withHeader option is set.
+     *
+     * @param stream          stream to write to CSV
+     * @param outputPath      path of the output CSV file to write
+     * @param exceptionHander handler of all exceptions which occur during writing or parsing
+     */
+    public void writeStreamToFile( Stream<T> stream, String outputPath, ExceptionHander exceptionHander )
+    {
+        try (OutputStream os = new FileOutputStream(outputPath);
+                BufferedOutputStream bos = new BufferedOutputStream(os);
+                PrintWriter printWriter = new PrintWriter(os))
+        {
+            if( header != null )
+            {
+                printWriter.println(header);
+            }
+
+            stream.map(object -> mapToCsvQuietly(object, exceptionHander))
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .forEach(printWriter::write);
+        }
+        catch( IOException e )
+        {
+            exceptionHander.handleException(e);
+        }
+    }
+
+    /**
+     * Creates a Stream of POJOs from CSV file. Stops at first parsing error and rethrows it as CsvException
+     *
+     * @param path - path to csv file
+     * @return java Stream of objects
+     * @throws CsvLineParsingFailedException when any kind of parsing error occurs
+     * @throws CsvException                  when stream can not be opened or read for some reason(eg. file does not exist)
+     */
+    public Stream<T> readFileAsStream( String path ) throws CsvException
+    {
+        return readFileAsStream(path, e -> {
+            throw new CsvLineParsingFailedException("Failed to map csv line to object.", e);
+        });
+    }
+
+    /**
+     * Creates a Stream of POJOs from CSV file. A custom exception handler can be provided
      * to handle any kinds of exceptions that might occur while reading/parsing
      *
      * @param path            - path to csv file
@@ -149,7 +195,12 @@ public class Csv<T>
     {
         try
         {
-            return doReadFileAsStream(path, exceptionHander);
+            Stream<String> lines = Files.lines(Paths.get(path));
+            lines = skipHeaderIfNeeded(lines);
+            lines = skipEmptyLinesIfNeeded(lines);
+            return lines.map(line -> mapToObjectQuietly(line, exceptionHander))
+                    .filter(Optional::isPresent)
+                    .map(Optional::get);
         }
         catch( IOException e )
         {
@@ -158,67 +209,14 @@ public class Csv<T>
         }
     }
 
-    /**
-     * Creates a Stream of POJOs from CSV file. Swallows any kind of mapping exceptions and omits faulty lines.
-     *
-     * @param path - path to csv file
-     * @return java Stream of objects
-     * @throws IOException when stream can not be opened (eg. file does not exist)
-     */
-    public Stream<T> readFileAsStream( String path ) throws IOException
+    private Stream<String> skipHeaderIfNeeded( Stream<String> lines )
     {
-        return doReadFileAsStream(path, ( exception ) -> {
-        });
+        return header != null ? lines.skip(1) : lines;
     }
 
-    public void writeStreamToFile( Stream<T> stream, String outputPath ) throws CsvException
+    private Stream<String> skipEmptyLinesIfNeeded( Stream<String> lines )
     {
-        try (OutputStream os = new FileOutputStream(outputPath);
-                BufferedOutputStream bos = new BufferedOutputStream(os);
-                PrintWriter writer = new PrintWriter(os))
-        {
-            List<Exception> exceptionsList = new ArrayList<>();
-
-            stream.map(object -> mapToCsvQuietly(object, exceptionsList::add))
-                    .filter(Optional::isPresent)
-                    .map(Optional::get)
-                    .forEach(writer::write);
-
-            if( !exceptionsList.isEmpty() )
-            {
-                String message = getAllExceptionsMessagesInOne(exceptionsList);
-                throw new CsvException("Failed to write lines due to following errors: " + message);
-            }
-        }
-        catch( IOException e )
-        {
-            throw new CsvException(e);
-        }
-    }
-
-    private String getAllExceptionsMessagesInOne( List<Exception> exceptionList )
-    {
-        StringBuilder exceptionMessageBuilder = new StringBuilder();
-        exceptionList.stream()
-                .map(Exception::toString)
-                .map(exceptionMessage -> exceptionMessage + "," + NEWLINE)
-                .forEach(exceptionMessageBuilder::append);
-        return exceptionMessageBuilder.toString();
-    }
-
-    private Stream<T> doReadFileAsStream( String path, ExceptionHander exceptionHander ) throws IOException
-    {
-        Stream<String> lines = Files.lines(Paths.get(path));
-
-        if(withHeader)
-        {
-            lines = lines.filter(line -> !line.startsWith(header));
-        }
-
-        return lines
-                .map(line -> mapToObjectQuietly(line, exceptionHander))
-                .filter(Optional::isPresent)
-                .map(Optional::get);
+        return skipEmptyLines ? lines.filter(line -> !line.trim().isEmpty()) : lines;
     }
 
     public static class CsvBuilder<T>
@@ -226,7 +224,9 @@ public class Csv<T>
 
         private final Class<T> schemaClass;
         private char separator = ',';
-        private boolean withHeader;
+        private boolean withHeader = false;
+        private Locale locale = Locale.getDefault();
+        private boolean skipEmptyLines = false;
 
         public CsvBuilder( Class<T> schemaClass )
         {
@@ -245,20 +245,59 @@ public class Csv<T>
             return this;
         }
 
-        public Csv build()
+        public CsvBuilder<T> withLocale( Locale locale )
+        {
+            this.locale = locale;
+            return this;
+        }
+
+        public Csv<T> build()
         {
             CsvMapper mapper = new CsvMapper();
+            mapper.setLocale(locale);
             CsvSchema schema = createSchema(mapper);
-            ObjectWriter writer = mapper.writer(schema);
             ObjectReader reader = mapper.readerFor(schemaClass).with(schema);
-            return new Csv<>(writer, reader, schema, withHeader);
+            reader = reader.with(locale);
+            ObjectWriter writer = mapper.writer(schema);
+            writer = writer.with(locale);
+            String header = withHeader ? getHeader(schema) : null;
+            return new Csv<>(writer, reader, header, skipEmptyLines);
         }
 
         private CsvSchema createSchema( CsvMapper mapper )
         {
-            CsvSchema schema = mapper.schemaFor(schemaClass).withColumnSeparator(separator);
-            return schema;
+            return mapper.schemaFor(schemaClass).withColumnSeparator(separator);
         }
 
+        private String getHeader( CsvSchema schema )
+        {
+            StringBuilder header = new StringBuilder();
+
+            if( schema.size() > 0 )
+            {
+                header.append(schema.column(0).getName());
+                for( int i = 1; i < schema.size(); i++ )
+                {
+                    header.append(schema.getColumnSeparator());
+                    header.append(schema.column(i).getName());
+                }
+            }
+            return header.toString();
+        }
+
+        public CsvBuilder<T> skipEmptyLines()
+        {
+            this.skipEmptyLines = true;
+            return this;
+        }
     }
+
+    /**
+     * Internal interface used to pass exceptions from streams
+     */
+    public interface ExceptionHander
+    {
+        void handleException( Exception e );
+    }
+
 }
